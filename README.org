@@ -1,0 +1,69 @@
+#+TITLE: esync.el
+#+AUTHOR: Claude
+
+Async multi-destination file sync for Emacs via TRAMP.
+
+=esync-mode= automatically copies the current file to one or more remote destinations on save. Manual upload and download commands are also provided.
+
+* Requirements
+
+- Emacs 26.1+
+- [[https://github.com/jwiegley/emacs-async][async.el]]
+
+* Installation
+
+#+begin_src elisp
+(use-package esync
+  :load-path "/path/to/esync"
+  :config
+  (global-esync-mode))
+#+end_src
+
+* Configuration
+
+Configure sync targets per-project in =.dir-locals.el=.
+
+Single destination:
+
+#+begin_src elisp
+((nil . ((esync-dest-dir . "/sshx:myserver:/srv/myproject")
+         (esync-ignore-patterns . ("/cache")))))
+#+end_src
+
+Multiple destinations:
+
+#+begin_src elisp
+((nil . ((esync-dest-dir . ("/sshx:server1:/srv/proj"
+                            "/rpc:server2:~/proj"))
+         (esync-ignore-patterns . ("/cache")))))
+#+end_src
+
+** Variables
+
+| Variable                     | Default                      | Description                                             |
+|------------------------------+------------------------------+---------------------------------------------------------|
+| =esync-dest-dir=             | nil                          | Destination(s), string or list. Set in =.dir-locals.el= |
+| =esync-ignore-patterns=      | =(".dir-locals.el" ".git/")= | Files matching any pattern are skipped                  |
+| =esync-root-markers=         | =(".git" ".project")=        | Marker files used to detect the project root            |
+| =esync-project-root-marker=  | nil                          | Override: single marker file, set in =.dir-locals.el=   |
+| =esync-tramp-thread-methods= | =("rpc")=                    | TRAMP methods that need a live connection (use thread)  |
+| =esync-async-init-file=      | nil                          | Elisp file loaded in each async child process           |
+| =esync-verbose=              | t                            | Log results to =*Messages*=                             |
+
+* Commands
+
+| Command              | Description                                                                                        |
+|----------------------+----------------------------------------------------------------------------------------------------|
+| =M-x esync-upload=   | Push current file or directory to all destinations                                                 |
+| =M-x esync-download= | Pull current file or directory from a destination (prompts if multiple); reverts buffer on success |
+
+* Credits
+
+- [[https://github.com/emacs-php/emacs-auto-deployment][copy-file-on-save]] by [[https://github.com/tadsan][USAMI Kenta]] — esync started as a fork of this package
+- [[https://github.com/jwiegley/emacs-async][async.el]] by [[https://github.com/jwiegley][John Wiegley]] — async subprocess support
+- [[https://github.com/ArthurHeymans/emacs-tramp-rpc][tramp-rpc]] by [[https://github.com/ArthurHeymans][Arthur Heymans]] — inspiration for the =/rpc:= thread strategy
+- [[https://github.com/cjohansson/emacs-ssh-deploy][ssh-deploy]] by [[https://github.com/cjohansson][Christian Johansson]] — reference for upload/download handler design
+
+* License
+
+GPL-3.0-or-later.

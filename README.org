@@ -49,6 +49,27 @@ Multiple destinations:
 | =esync-tramp-thread-methods= | =("rpc")=                    | TRAMP methods that need a live connection (use thread)  |
 | =esync-async-init-file=      | nil                          | Elisp file loaded in each async child process           |
 | =esync-verbose=              | t                            | Log results to =*Messages*=                             |
+| =esync-new-file-action=      | =ask=                        | Guard when a newly created local file would overwrite a destination file |
+
+** New local files
+
+Visiting a path that has no local file gives you an empty buffer. Saving
+it creates the local file. Without a guard the upload would then replace
+the destination's content with that empty file.
+
+=esync-new-file-action= controls this case. It only applies to the one
+save that creates the local file, and only when the destination already
+has a file at the same path.
+
+| Value     | Behaviour                                      |
+|-----------+------------------------------------------------|
+| =ask=     | Ask before overwriting each destination file (default) |
+| =skip=    | Keep the destination file and report it        |
+| =upload=  | Upload anyway                                  |
+
+To take the destination's version instead, run =M-x esync-download=. It
+works on a file that does not exist locally yet, which is the normal way
+to start editing a file that only lives at the destination.
 
 * Commands
 

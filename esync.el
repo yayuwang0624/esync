@@ -99,12 +99,26 @@ When nil the child starts with `-q' and no extra init file."
   :type '(choice (const :tag "None" nil) file)
   :group 'esync)
 
+(defcustom esync-new-file-action 'ask
+  "What to do when a save creates a local file the destination already has.
+
+- `ask'    -- ask before overwriting each destination file
+- `skip'   -- keep the destination file
+- `upload' -- upload anyway"
+  :type '(choice (const :tag "Ask before overwriting" ask)
+                 (const :tag "Keep the destination file" skip)
+                 (const :tag "Upload anyway" upload))
+  :group 'esync)
+
 ;;;; Constants / internal vars
 
 (defconst esync-root-markers '(".git" ".project")
   "Marker files/dirs used to detect the project root.")
 
 (defvar-local esync-lighter esync-default-lighter)
+
+(defvar-local esync--creating-file nil
+  "Non-nil when the current save creates the local file.")
 
 ;;;; Directory-local variables
 
@@ -330,32 +344,56 @@ auth prompts work and C-g cancels cleanly.  Once connected:
         (esync--copy-via-thread from-path to-path verbose)
       (esync--copy-via-subprocess from-path to-path verbose))))
 
+(defun esync--allow-overwrite-p (to-path new-file)
+  "Return non-nil if esync may write TO-PATH.
+NEW-FILE non-nil means the current save created the local file.
+See `esync-new-file-action'."
+  (cond
+   ((or (not new-file) (eq esync-new-file-action 'upload)) t)
+   ((progn (esync--ensure-tramp-connection to-path)
+           (not (file-exists-p to-path)))
+    t)
+   ((eq esync-new-file-action 'skip)
+    (message "esync: kept %s -- local file is new, use `esync-download' to pull it"
+             to-path)
+    nil)
+   (t
+    (yes-or-no-p
+     (format "esync: %s exists and the local file is new.  Overwrite it? "
+             to-path)))))
+
 (defun esync--copy-file ()
   "Fire off async copies of the current buffer's file to all destinations."
-  (let* ((from-path buffer-file-name)
-         (base-dir  (esync--base-dir)))
+  (let ((from-path buffer-file-name)
+        (new-file  esync--creating-file))
     (dolist (dest-dir (esync--dest-dirs))
-      (esync--async-copy
-       from-path
-       (esync--replace-path from-path dest-dir)))))
+      (let ((to-path (esync--replace-path from-path dest-dir)))
+        (when (esync--allow-overwrite-p to-path new-file)
+          (esync--async-copy from-path to-path))))))
 
 ;;;; Hook
 
+(defun esync--hook-before-save ()
+  "Hook function added to `before-save-hook' by `esync-mode'."
+  (setq esync--creating-file
+        (and buffer-file-name (not (file-exists-p buffer-file-name)))))
+
 (defun esync--hook-after-save ()
   "Hook function added to `after-save-hook' by `esync-mode'."
-  (if (esync--available)
-      (progn
-        (esync--update-lighter t)
-        (esync--copy-file))
-    (esync--update-lighter nil)))
+  (unwind-protect
+      (if (esync--available)
+          (progn
+            (esync--update-lighter t)
+            (esync--copy-file))
+        (esync--update-lighter nil))
+    (setq esync--creating-file nil)))
 
 ;;;; Interactive upload / download commands
 
 (defun esync--current-path ()
-  "Return the local path to act on: buffer file, or current directory."
+  "Return the buffer's file, even if missing on disk, or the current directory."
   (cond
-   ((and buffer-file-name (file-exists-p buffer-file-name))
-    (file-truename buffer-file-name))
+   (buffer-file-name (file-truename buffer-file-name))
    ((and default-directory (file-exists-p default-directory))
     (file-truename default-directory))))
 
@@ -387,6 +425,9 @@ subprocess for everything else)."
     (cond
      ((null dest-dirs)
       (user-error "esync: no destinations configured (set esync-dest-dir in .dir-locals.el)"))
+     ((and buffer-file-name (not (file-exists-p buffer-file-name)))
+      (user-error "esync: %s does not exist on disk yet -- save it first"
+                  buffer-file-name))
      ((null local-path)
       (user-error "esync: no file or directory to upload"))
      ((not (esync--not-matches-ignore-patterns local-path))
@@ -411,6 +452,11 @@ After a successful download the current buffer is reverted."
       (user-error "esync: no destinations configured (set esync-dest-dir in .dir-locals.el)"))
      ((null local-path)
       (user-error "esync: no file or directory to download"))
+     ((and (buffer-modified-p)
+           (not (yes-or-no-p
+                 (format "esync: %s has unsaved changes the download will discard.  Continue? "
+                         (buffer-name)))))
+      (message "esync: download cancelled"))
      (t
       (let* ((dest-dir
               (if (cdr dest-dirs)
@@ -480,7 +526,10 @@ After a successful download the current buffer is reverted."
   :group 'esync
   :lighter esync-lighter
   (if esync-mode
-      (add-hook 'after-save-hook #'esync--hook-after-save nil t)
+      (progn
+        (add-hook 'before-save-hook #'esync--hook-before-save nil t)
+        (add-hook 'after-save-hook #'esync--hook-after-save nil t))
+    (remove-hook 'before-save-hook #'esync--hook-before-save t)
     (remove-hook 'after-save-hook #'esync--hook-after-save t)))
 
 ;;;###autoload
